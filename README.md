@@ -1,5 +1,7 @@
 # ThinkWiki
 
+Enrich AI queries with Wikipedia data.
+
 An OpenAI-compatible proxy server that grounds LLM answers in a local
 Wikipedia archive. It sits between a client and an upstream LLM API: before
 forwarding a request it extracts factual claims from the user's message, looks
