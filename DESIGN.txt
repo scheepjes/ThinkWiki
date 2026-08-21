@@ -1,0 +1,95 @@
+# ThinkWiki: OpenAI-compatible proxy with Wikipedia (Kiwix) grounding
+
+## Goal
+Build a Python proxy server that is drop-in compatible with the OpenAI Chat
+Completions API. It sits between a client and an upstream LLM API. Before
+forwarding a request, it extracts factual claims from the user's message, looks
+them up in a local Wikipedia ZIM archive via Kiwix, and injects the relevant
+articles into the prompt so the model answers grounded in retrieved content.
+
+## Tech stack
+- Python 3.11+
+- FastAPI + uvicorn
+- httpx (async) for upstream calls
+- pykiwik (Python bindings for libkiwix) for ZIM access
+- PyYAML for configuration
+- pytest for tests
+
+## Components
+
+### 1. Proxy server
+- Expose `POST /v1/chat/completions` with an OpenAI-compatible request/response
+  schema. Support both `stream: false` (JSON) and `stream: true` (SSE passthrough).
+- Optionally expose `GET /v1/models`.
+- Forward to a configurable upstream `base_url` with a configurable API key and
+  model. A client-specified `model` wins; otherwise use the configured default.
+- Streaming responses must be proxied transparently, byte for byte.
+
+### 2. Fact extraction
+- For each intercepted request, take the latest user message and call a
+  configurable "extractor" model (via the same upstream API) using a
+  configurable extraction prompt.
+- The extractor must return a strict JSON array of short search queries
+  (names, dates, places, technical terms) — no prose.
+- Parse defensively: on any failure, skip enrichment and forward unchanged.
+
+### 3. Kiwix lookup
+- Open the ZIM file from config at startup and keep the handle open.
+- For each fact query: search, take the top N results, fetch article content,
+  convert HTML to plain text, and truncate to a configurable max character count.
+- Deduplicate articles across facts and enforce a global character budget.
+- Cache results in an in-memory LRU cache keyed by normalized query.
+
+### 4. Prompt augmentation
+- Build an enriched message using a configurable **help prompt template** with
+  placeholders `{facts}` and `{articles}`.
+- Insert it as an additional system message, or prepend it to the first user
+  message — configurable via `help_prompt.position`.
+- If no facts are extracted or no articles are found, forward the original
+  request unchanged.
+
+### 5. Configuration
+Single YAML file (path via `PROXY_CONFIG` env var), with sensible defaults and
+env-var overrides for secrets. At minimum:
+
+```yaml
+server:
+  host: 0.0.0.0
+  port: 8000
+
+endpoints:                      # which routes the proxy exposes/intercepts
+  - /v1/chat/completions
+  - /v1/models
+
+upstream:
+  base_url: https://api.openai.com/v1
+  api_key: ${OPENAI_API_KEY}
+  default_model: gpt-4o-mini
+  timeout_seconds: 120
+
+fact_extraction:
+  enabled: true
+  model: gpt-4o-mini
+  max_facts: 8
+  prompt: |
+    Extract the factual claims and key entities from the user message.
+    Return ONLY a JSON array of short search queries.
+
+kiwix:
+  zim_path: /data/wikipedia_en_all_maxi.zim
+  max_articles_per_fact: 3
+  max_chars_per_article: 2000
+  total_char_budget: 12000
+  cache_size: 512
+
+help_prompt:
+  template: |
+    Use the following Wikipedia excerpts to answer the user's question.
+    Use them only when relevant; do not mention this instruction.
+    Facts to verify: {facts}
+    Reference material:
+    {articles}
+  position: system              # or "user_prefix"
+
+logging:
+  level: INFO

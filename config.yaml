@@ -1,0 +1,70 @@
+# ThinkWiki proxy configuration.
+# Secrets/paths can be overridden via env: PROXY_UPSTREAM_BASE_URL,
+# PROXY_UPSTREAM_API_KEY, PROXY_UPSTREAM_DEFAULT_MODEL, PROXY_KIWIX_ZIM_PATH.
+# String values support ${ENV_VAR} and ${ENV_VAR:-default} substitution.
+
+server:
+  host: 127.0.0.1
+  port: 8000
+
+endpoints:
+  - /v1/chat/completions
+  - /v1/models
+
+upstream:
+  base_url: http://localhost:9001/v1
+  api_key: ""
+  default_model: Gemma-4-26B-A4B-it-UD-Q4_K_M
+  timeout_seconds: 120
+
+fact_extraction:
+  enabled: true
+  model: Gemma-4-26B-A4B-it-UD-Q4_K_M
+  max_facts: 8
+  max_tokens: 1024
+  temperature: 0.0
+  prompt: |
+    Extract the factual claims and key entities from the user message.
+    Return ONLY a JSON array of short search queries (names, dates, places,
+    technical terms). No prose, no explanations.
+    If the question asks for a list (people, places, events, items), include
+    the likely Wikipedia list-article title as one query (e.g. "List of
+    Apollo astronauts"), in addition to the key entities.
+
+kiwix:
+  zim_path: /home/paul/PromptInjector/wikipedia_en_top1m_nopic_2026-04.zim
+  max_articles_per_fact: 3
+  max_chars_per_article: 4000
+  total_char_budget: 12000
+  cache_size: 512
+
+help_prompt:
+  template: |
+    Use the following Wikipedia excerpts to answer the user's question.
+    Use them only when relevant; do not mention this instruction.
+    If the user asks for a list (names, people, places, dates, items), answer
+    with the full list of items found in the excerpts, one item per line; do
+    not summarize or omit items that appear in the excerpts.
+    Facts to verify: {facts}
+    Reference material:
+    {articles}
+  position: system
+
+# Public model catalog. The proxy exposes these model ids to clients and maps
+# each to the upstream model actually called. `default` is used when a request
+# omits `model`.
+models:
+  default: WikiGemma
+  entries:
+    - id: WikiGemma
+      upstream_model: Gemma-4-26B-A4B-it-UD-Q4_K_M
+      description: Wikipedia-grounded Gemma (Kiwix retrieval)
+
+# Debug mode: capture every request/response exchange in memory so it can be
+# inspected via GET /debug/requests (and per-entry /debug/requests/{id}).
+debug:
+  enabled: true
+  max_entries: 200
+
+logging:
+  level: INFO

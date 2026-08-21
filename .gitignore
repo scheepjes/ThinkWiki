@@ -1,0 +1,19 @@
+# Python virtualenv internals (the repo root doubles as a venv)
+bin/
+lib/
+lib64
+pyvenv.cfg
+
+# Python caches
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Local tooling state
+.opencode/
+
+# Data files and build artifacts
+*.zim
+native/libzim_wrapper.so
