@@ -1,7 +1,9 @@
+from pathlib import Path
+
 from conftest import ZIM_PATH
 
 from proxy.config import Config, KiwixCfg
-from proxy.kiwix import KiwixLookup, normalize_query
+from proxy.kiwix import KiwixLookup, normalize_query, resolve_zim_paths
 
 
 def _cfg(**overrides) -> Config:
@@ -140,5 +142,87 @@ def test_regular_query_still_works_with_small_budget():
         arts = k.lookup(["Albert Einstein"])
         assert arts
         assert "physicist" in arts[0].text.lower() or "Einstein" in arts[0].text
+    finally:
+        k.close()
+
+
+# --- multi-ZIM directory support -------------------------------------------
+
+
+def _zim_dir(tmp_path, names=("aaa_en.zim", "bbb_fr.zim")):
+    """A temp dir holding symlinks to the real ZIM under the given names."""
+    d = tmp_path / "zims"
+    d.mkdir()
+    real = Path(ZIM_PATH).resolve()
+    for n in names:
+        (d / n).symlink_to(real)
+    (d / "notes.txt").write_text("not a zim")
+    return d
+
+
+def test_resolve_zim_paths_from_dir(tmp_path):
+    d = _zim_dir(tmp_path)
+    paths = resolve_zim_paths(KiwixCfg(zim_dir=str(d)))
+    assert [Path(p).name for p in paths] == ["aaa_en.zim", "bbb_fr.zim"]
+
+
+def test_resolve_zim_paths_dir_sorted_and_filtered(tmp_path):
+    d = _zim_dir(tmp_path, names=("zeta.zim", "alpha.zim"))
+    paths = resolve_zim_paths(KiwixCfg(zim_dir=str(d)))
+    assert [Path(p).name for p in paths] == ["alpha.zim", "zeta.zim"]
+
+
+def test_resolve_zim_paths_dir_plus_single_file(tmp_path):
+    d = _zim_dir(tmp_path, names=("aaa_en.zim",))
+    paths = resolve_zim_paths(KiwixCfg(zim_dir=str(d), zim_path=ZIM_PATH))
+    assert [Path(p).name for p in paths] == ["aaa_en.zim", Path(ZIM_PATH).name]
+
+
+def test_resolve_zim_paths_single_file_only():
+    assert resolve_zim_paths(KiwixCfg(zim_path=ZIM_PATH)) == [ZIM_PATH]
+
+
+def test_resolve_zim_paths_empty_when_unset():
+    assert resolve_zim_paths(KiwixCfg()) == []
+
+
+def test_resolve_zim_paths_missing_dir_falls_back_to_file(tmp_path):
+    paths = resolve_zim_paths(KiwixCfg(zim_dir=str(tmp_path / "nope"), zim_path=ZIM_PATH))
+    assert paths == [ZIM_PATH]
+
+
+def test_lookup_via_zim_dir_tags_source(tmp_path):
+    d = _zim_dir(tmp_path, names=("wiki.zim",))
+    k = KiwixLookup(Config(kiwix=KiwixCfg(zim_dir=str(d))))
+    try:
+        arts = k.lookup(["Albert Einstein"])
+        assert arts
+        assert all(a.source == "wiki.zim" for a in arts)
+    finally:
+        k.close()
+
+
+def test_lookup_across_two_archives_dedups_by_title(tmp_path):
+    """The same article present in two archives must be counted only once."""
+    d = _zim_dir(tmp_path)
+    k = KiwixLookup(
+        Config(
+            kiwix=KiwixCfg(
+                zim_dir=str(d),
+                max_articles_per_fact=3,
+                max_chars_per_article=400,
+                total_char_budget=2000,
+                cache_size=8,
+            )
+        )
+    )
+    try:
+        arts = k.lookup(["Albert Einstein"])
+        # Two identical archives would yield 6 candidate hits; title de-dup
+        # must collapse them to the 3 distinct articles.
+        assert len(arts) == 3
+        titles = [normalize_query(a.title) for a in arts]
+        assert len(titles) == len(set(titles))
+        assert all(a.source for a in arts)
     finally:
         k.close()

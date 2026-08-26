@@ -35,7 +35,7 @@ from proxy.config import (
 from proxy.server import create_app
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-ZIM_PATH = str(PROJECT_ROOT / "wikipedia_en_top1m_nopic_2026-04.zim")
+ZIM_PATH = str(PROJECT_ROOT / "zims" / "wikipedia_en_top1m_nopic_2026-04.zim")
 
 EXTRACTION_PROMPT = (
     "Extract the factual claims and key entities from the user message.\n"
@@ -48,6 +48,9 @@ EXTRACTION_RESPONSE = '["Albert Einstein", "General relativity"]'
 # Returned for extraction requests whose user message mentions the moon, so
 # list-type questions can be exercised end to end.
 EXTRACTION_RESPONSE_MOON = '["Apollo astronauts", "Apollo 11"]'
+# Returned for extraction requests whose user message mentions "frobnicate":
+# facts that have no match in the ZIM, exercising the LLM-only fallback.
+EXTRACTION_RESPONSE_NOTFOUND = '["Qwzx Asdf Frobnicate"]'
 
 
 def _free_port() -> int:
@@ -118,7 +121,9 @@ class MockUpstream:
                     "",
                 )
                 user_text = user_text if isinstance(user_text, str) else ""
-                if "moon" in user_text.lower():
+                if "frobnicate" in user_text.lower():
+                    content = EXTRACTION_RESPONSE_NOTFOUND
+                elif "moon" in user_text.lower():
                     content = EXTRACTION_RESPONSE_MOON
                 else:
                     content = EXTRACTION_RESPONSE
@@ -258,6 +263,19 @@ def proxy_server_noenrich(mock_upstream):
     """Start the proxy with fact extraction disabled."""
     cfg = make_proxy_config(mock_upstream.base_url)
     cfg.fact_extraction.enabled = False
+    runner = _start_proxy(cfg)
+    yield f"http://127.0.0.1:{runner.port}"
+    runner.stop()
+
+
+@pytest.fixture
+def proxy_server_zimdir(mock_upstream, tmp_path):
+    """Start the proxy configured with a ZIM *directory* (not a single file)."""
+    zdir = tmp_path / "zims"
+    zdir.mkdir()
+    (zdir / "wikipedia_en.zim").symlink_to(Path(ZIM_PATH).resolve())
+    cfg = make_proxy_config(mock_upstream.base_url, zim_dir=str(zdir))
+    cfg.kiwix.zim_path = ""  # exercise directory mode only
     runner = _start_proxy(cfg)
     yield f"http://127.0.0.1:{runner.port}"
     runner.stop()

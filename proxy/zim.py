@@ -1,16 +1,21 @@
 """ctypes binding to the native libzim wrapper (native/libzim_wrapper.so).
 
-Provides a small, dependency-free interface to open a ZIM archive, run
+Provides a small, dependency-free interface to open ZIM archives, run
 full-text searches, and fetch article content by path or title.
+``Zim`` wraps a single archive; ``ZimCollection`` wraps several archives
+behind the same interface (searches all of them, merges the results).
 """
 
 from __future__ import annotations
 
 import ctypes
+import logging
 import os
 import re
 from pathlib import Path
 from typing import Any, Self
+
+log = logging.getLogger(__name__)
 
 _LIB_NAME = "libzim_wrapper.so"
 
@@ -237,3 +242,118 @@ class Zim:
             return results
         finally:
             self._lib.zimw_search_free(rs)
+
+
+class ZimCollection:
+    """One or more ZIM archives behind a single search/fetch interface.
+
+    Mirrors the public interface of :class:`Zim`. Searches are run against
+    every archive that has a full-text index and the results are merged into
+    one list ranked by score (highest first), de-duplicated by normalized
+    title. Article fetches try each archive in order and return the first hit.
+    """
+
+    def __init__(self, paths: list[str]) -> None:
+        if not paths:
+            raise ValueError("no ZIM paths provided")
+        self._zims: list[Zim] = []
+        for p in paths:
+            try:
+                self._zims.append(Zim(p))
+            except Exception as e:
+                log.warning("skipping ZIM %s: %s", p, e)
+        if not self._zims:
+            raise RuntimeError(f"no ZIM archives could be opened from: {paths}")
+        self._names = [Path(z.path).name for z in self._zims]
+
+    # -- lifecycle ---------------------------------------------------------
+    def close(self) -> None:
+        for z in self._zims:
+            z.close()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    def __del__(self) -> None:  # best-effort cleanup
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    # -- info --------------------------------------------------------------
+    @property
+    def names(self) -> list[str]:
+        """File names of the opened archives, in open order."""
+        return list(self._names)
+
+    @property
+    def article_count(self) -> int:
+        return sum(z.article_count for z in self._zims)
+
+    @property
+    def entry_count(self) -> int:
+        return sum(z.entry_count for z in self._zims)
+
+    @property
+    def has_fulltext_index(self) -> bool:
+        return any(z.has_fulltext_index for z in self._zims)
+
+    def metadata(self, name: str) -> str | None:
+        for z in self._zims:
+            v = z.metadata(name)
+            if v:
+                return v
+        return None
+
+    # -- article access ----------------------------------------------------
+    def get_article(
+        self,
+        path: str | None = None,
+        title: str | None = None,
+        source: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Fetch an article, trying each archive in order (first hit wins).
+
+        ``source`` (an archive file name) is tried first when given, so a path
+        that came from a specific archive's search results is resolved there.
+        The result dict carries a ``"source"`` key with the archive file name.
+        """
+        order = list(range(len(self._zims)))
+        if source:
+            preferred = [i for i, n in enumerate(self._names) if n == source]
+            order = preferred + [i for i in order if i not in preferred]
+        for i in order:
+            res = self._zims[i].get_article(path=path, title=title)
+            if res is not None:
+                res["source"] = self._names[i]
+                return res
+        return None
+
+    # -- search ------------------------------------------------------------
+    def search(self, query: str, max_results: int = 10) -> list[dict[str, Any]]:
+        """Search every indexed archive; return merged, score-ranked results."""
+        if not query:
+            return []
+        ranked: list[tuple[int, int, int, dict[str, Any]]] = []
+        for zi, z in enumerate(self._zims):
+            if not z.has_fulltext_index:
+                continue
+            for ri, r in enumerate(z.search(query, max_results)):
+                r["source"] = self._names[zi]
+                ranked.append((-int(r.get("score", 0)), zi, ri, r))
+        ranked.sort(key=lambda t: (t[0], t[1], t[2]))
+        seen: set[str] = set()
+        out: list[dict[str, Any]] = []
+        for _, _, _, r in ranked:
+            key = " ".join((r.get("title") or "").lower().split())
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            out.append(r)
+            if len(out) >= max_results:
+                break
+        return out

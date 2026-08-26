@@ -91,19 +91,20 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         state["http"] = httpx.AsyncClient(timeout=cfg.upstream.timeout_seconds)
         state["debug"] = DebugStore(cfg.debug.max_entries) if cfg.debug.enabled else None
-        if cfg.kiwix.zim_path:
+        if cfg.kiwix.zim_path or cfg.kiwix.zim_dir:
             try:
                 state["kiwix"] = KiwixLookup(cfg)
                 log.info(
-                    "opened ZIM %s (%d articles)",
-                    cfg.kiwix.zim_path,
+                    "opened %d ZIM archive(s) (%d articles): %s",
+                    len(state["kiwix"].zim.names),
                     state["kiwix"].zim.article_count,
+                    ", ".join(state["kiwix"].zim.names),
                 )
             except Exception as e:  # pragma: no cover - depends on data file
-                log.error("failed to open ZIM %s: %s", cfg.kiwix.zim_path, e)
+                log.error("failed to open ZIM archives: %s", e)
                 state["kiwix"] = None
         else:
-            log.warning("kiwix.zim_path not set; enrichment disabled")
+            log.warning("kiwix.zim_path / kiwix.zim_dir not set; enrichment disabled")
             state["kiwix"] = None
         yield
         await state["http"].aclose()
@@ -205,7 +206,13 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             "model_upstream": model_upstream,
             "facts": facts,
             "articles": [
-                {"title": a.title, "path": a.path, "chars": len(a.text)} for a in articles
+                {
+                    "title": a.title,
+                    "path": a.path,
+                    "source": a.source,
+                    "chars": len(a.text),
+                }
+                for a in articles
             ],
             "upstream_request": upstream_request,
             "response": response,

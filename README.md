@@ -33,6 +33,11 @@ If fact extraction or lookup fails for any reason, the request is forwarded
   list-type questions the extractor is prompted to also emit the likely
   Wikipedia list-article title (e.g. `List of Apollo astronauts`), which then
   hits the archive by exact title.
+- **Multi-ZIM**: point `kiwix.zim_dir` at a directory and every `*.zim` file in
+  it is opened and searched. Results from all archives are merged (best score
+  first) and de-duplicated by article title across archives, so the same
+  article in two ZIMs (e.g. two languages) is used once. Each retrieved
+  article records which archive it came from (visible in debug entries).
 - ZIM lookup with exact-title-first ranking, cross-fact de-duplication, a global
   character budget, and an in-memory LRU cache keyed by normalized query.
 - **Query-relevance-aware article extraction**: each article is split into
@@ -59,7 +64,8 @@ dependencies live in `bin/` and `lib/`.
 ├── requirements.txt      # Python dependencies
 ├── ruff.toml             # linter config
 ├── mypy.ini              # type-checker config
-├── wikipedia_en_top1m_nopic_2026-04.zim   # local Wikipedia archive (~16 GB)
+├── zims/                 # every *.zim here is opened and searched
+│   └── wikipedia_en_top1m_nopic_2026-04.zim   # local Wikipedia archive (~16 GB)
 ├── native/
 │   ├── zim_wrapper.cpp   # C interface over the libzim C++ API
 │   ├── build.sh          # builds libzim_wrapper.so
@@ -116,11 +122,27 @@ local ZIM. Key sections:
 | `endpoints`       | Which routes the proxy exposes/intercepts.                     |
 | `upstream`        | Upstream LLM `base_url`, `api_key`, `default_model`, timeout.  |
 | `fact_extraction` | Toggle, extractor model, `max_facts`, and the extraction prompt. |
-| `kiwix`           | `zim_path`, per-fact/per-article/total char limits, cache size. |
+| `kiwix`           | `zim_dir` (dir of `.zim` files) and/or `zim_path` (single file), per-fact/per-article/total char limits, cache size. |
 | `help_prompt`     | The grounding template (`{facts}`, `{articles}`) and `position`. |
 | `models`          | Public model catalog: `default` + `entries` (id → upstream model). |
 | `debug`           | Toggle request/response capture + `max_entries` buffer size.     |
 | `logging`         | Log level.                                                     |
+
+### ZIM archives (single file or directory)
+
+`kiwix` locates its content two ways (either or both):
+
+- `zim_dir` — a directory; **every `*.zim` file in it is opened and searched**.
+  Drop new archives into the directory and restart to use them. Files are
+  processed in sorted file-name order; a file that fails to open is skipped
+  with a warning (the rest still work).
+- `zim_path` — a single `.zim` file (the original behavior).
+
+When both are set, the directory's files are used and the single file is added
+if it is not already among them. Searches run against all archives and the
+results are merged (highest score first) and de-duplicated by article title, so
+an article present in several ZIMs is injected once. Each retrieved article
+records its source archive (shown in `GET /debug/requests`).
 
 `help_prompt.position` is either `system` (insert an additional system message)
 or `user_prefix` (prepend to the first user message).
@@ -141,6 +163,7 @@ over the YAML values):
 - `PROXY_UPSTREAM_API_KEY`
 - `PROXY_UPSTREAM_DEFAULT_MODEL`
 - `PROXY_KIWIX_ZIM_PATH`
+- `PROXY_KIWIX_ZIM_DIR`
 
 Any string value in the YAML also supports `${ENV_VAR}` and
 `${ENV_VAR:-default}` substitution.
@@ -241,9 +264,10 @@ bin/mypy proxy/ tests/
 
 ## Notes
 
-- The ZIM archive is expected at the path in `kiwix.zim_path`. If it cannot be
-  opened, the proxy still starts and serves requests, but enrichment is
-  disabled (check `GET /health` → `enrichment`).
+- ZIM content comes from `kiwix.zim_dir` (all `*.zim` in it) and/or
+  `kiwix.zim_path`. If no archive can be opened, the proxy still starts and
+  serves requests, but enrichment is disabled (check `GET /health` →
+  `enrichment`).
 - The upstream is any OpenAI-compatible API; the included config targets a
   local llama.cpp server. Set `upstream.api_key` for providers that require one.
 - The debug buffer is in-memory only and bounded by `debug.max_entries` (oldest

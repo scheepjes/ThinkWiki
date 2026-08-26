@@ -32,7 +32,10 @@ fact_extraction:
     Apollo astronauts"), in addition to the key entities.
 
 kiwix:
-  zim_path: /home/paul/PromptInjector/wikipedia_en_top1m_nopic_2026-04.zim
+  # Directory of .zim files: every *.zim in it is opened and searched.
+  # Drop additional archives in here and restart to use them. (A single file
+  # can still be used via zim_path; both may be set.)
+  zim_dir: /home/paul/PromptInjector/zims
   max_articles_per_fact: 3
   max_chars_per_article: 4000
   total_char_budget: 12000

@@ -108,6 +108,7 @@ class FactExtractionCfg:
 @dataclass
 class KiwixCfg:
     zim_path: str = ""
+    zim_dir: str = ""
     max_articles_per_fact: int = 3
     max_chars_per_article: int = 4000
     total_char_budget: int = 12000
@@ -165,6 +166,7 @@ def _apply_env_overrides(cfg: Config) -> Config:
         "PROXY_UPSTREAM_API_KEY": ("upstream", "api_key"),
         "PROXY_UPSTREAM_DEFAULT_MODEL": ("upstream", "default_model"),
         "PROXY_KIWIX_ZIM_PATH": ("kiwix", "zim_path"),
+        "PROXY_KIWIX_ZIM_DIR": ("kiwix", "zim_dir"),
     }
     for env_name, (section, attr) in overrides.items():
         value = os.environ.get(env_name)

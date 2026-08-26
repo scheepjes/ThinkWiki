@@ -148,6 +148,56 @@ def test_list_question_gets_named_list(proxy_server, mock_upstream):
     assert "full list" in content.lower()
 
 
+def test_zim_dir_enriches_end_to_end(proxy_server_zimdir, mock_upstream):
+    """A proxy configured with a ZIM directory (not a single file) must still
+    ground answers from the archives found in that directory."""
+    r = httpx.post(
+        proxy_server_zimdir + "/v1/chat/completions",
+        json={
+            "model": "mock-model",
+            "messages": [{"role": "user", "content": "Who was Einstein?"}],
+            "stream": False,
+        },
+        timeout=60,
+    )
+    assert r.status_code == 200
+    main_calls = [b for b in mock_upstream.requests if not _is_extraction(b)]
+    assert main_calls, "expected a forwarded chat call"
+    main = main_calls[-1]
+    sys_msgs = [m for m in main["messages"] if m.get("role") == "system"]
+    assert sys_msgs, "expected an augmented system message"
+    assert "Albert Einstein" in sys_msgs[0]["content"]
+
+
+def test_facts_not_found_in_zim_forwards_unchanged(proxy_server, mock_upstream):
+    """When extracted facts have no ZIM match, the request must be forwarded
+    unchanged so the upstream LLM answers on its own (no grounding prompt)."""
+    before = len(mock_upstream.requests)
+    r = httpx.post(
+        proxy_server + "/v1/chat/completions",
+        json={
+            "model": "mock-model",
+            "messages": [{"role": "user", "content": "Tell me about the Qwzx Asdf Frobnicate."}],
+            "stream": False,
+        },
+        timeout=60,
+    )
+    assert r.status_code == 200
+    assert r.json()["choices"][0]["message"]["content"]
+
+    new = mock_upstream.requests[before:]
+    # Facts were extracted (one extraction call) but nothing was found in the
+    # ZIM, so exactly one main call goes out, forwarded byte-for-byte.
+    assert any(_is_extraction(b) for b in new), "expected a fact-extraction call"
+    main_calls = [b for b in new if not _is_extraction(b)]
+    assert len(main_calls) == 1, "expected exactly one forwarded chat call"
+    main = main_calls[0]
+    assert main["messages"] == [
+        {"role": "user", "content": "Tell me about the Qwzx Asdf Frobnicate."}
+    ]
+    assert not any(m.get("role") == "system" for m in main["messages"])
+
+
 def test_invalid_json_body(proxy_server):
     r = httpx.post(
         proxy_server + "/v1/chat/completions",
