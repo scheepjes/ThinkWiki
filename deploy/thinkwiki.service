@@ -1,0 +1,28 @@
+[Unit]
+Description=ThinkWiki proxy (Wikipedia-grounded OpenAI-compatible LLM proxy)
+Documentation=file:///home/paul/PromptInjector/README.md
+After=network.target
+
+[Service]
+Type=simple
+User=paul
+WorkingDirectory=/home/paul/PromptInjector
+Environment=PROXY_CONFIG=/home/paul/PromptInjector/config.yaml
+ExecStart=/home/paul/PromptInjector/bin/python -m proxy
+Restart=on-failure
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# Resource limits
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
