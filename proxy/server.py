@@ -239,6 +239,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
 
             t0 = time.perf_counter()
             enriched, facts, articles = await _enrich(body)
+            if cfg.upstream.temperature is not None:
+                enriched["temperature"] = cfg.upstream.temperature
             url = _base() + "/chat/completions"
             debug: DebugStore | None = state.get("debug")
 

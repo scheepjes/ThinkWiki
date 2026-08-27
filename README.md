@@ -120,7 +120,7 @@ local ZIM. Key sections:
 |-------------------|----------------------------------------------------------------|
 | `server`          | Bind host/port for the proxy.                                  |
 | `endpoints`       | Which routes the proxy exposes/intercepts.                     |
-| `upstream`        | Upstream LLM `base_url`, `api_key`, `default_model`, timeout.  |
+| `upstream`        | Upstream LLM `base_url`, `api_key`, `default_model`, timeout, and optional forced `temperature`. |
 | `fact_extraction` | Toggle, extractor model, `max_facts`, and the extraction prompt. |
 | `kiwix`           | `zim_dir` (dir of `.zim` files) and/or `zim_path` (single file), per-fact/per-article/total char limits, cache size. |
 | `help_prompt`     | The grounding template (`{facts}`, `{articles}`) and `position`. |
@@ -146,6 +146,11 @@ records its source archive (shown in `GET /debug/requests`).
 
 `help_prompt.position` is either `system` (insert an additional system message)
 or `user_prefix` (prepend to the first user message).
+
+`upstream.temperature`, when set, is forced on every forwarded chat request
+(overriding the client's value). The included config sets it to `0.0` so
+answers are deterministic; omit it (or set `null`) to pass the client's
+temperature through unchanged.
 
 `models.entries` maps each public `id` to the `upstream_model` actually called.
 When a catalog is present, `GET /v1/models` returns those ids and a chat

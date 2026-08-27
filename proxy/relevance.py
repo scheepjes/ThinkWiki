@@ -135,6 +135,48 @@ _DATA_KINDS = {"li", "td", "th"}
 # Per-term match-count caps used when scoring sections.
 _COUNT_CAP = 15
 _HEADING_CAP = 3
+# Minimum number of bulleted items for a section to count as a list section.
+_MIN_LIST_ITEMS = 5
+# Maximum average item length: short items signal an enumeration of
+# names/places (the payload of list-type questions); long items are
+# descriptions, not a compact list.
+_MAX_AVG_ITEM_CHARS = 100
+# Headings whose list items are references/links/media rather than content.
+_NON_CONTENT_HEADINGS = frozenset(
+    {
+        "references",
+        "bibliography",
+        "further reading",
+        "external links",
+        "see also",
+        "notes",
+        "footnotes",
+        "sources",
+        "citations",
+        "gallery",
+        "media",
+        "referenties",
+        "bronnen",
+        "literatuur",
+        "voetnoten",
+        "externe links",
+        "zie ook",
+        "galerij",
+        "mediabestanden",
+    }
+)
+
+
+def _is_list_section(heading: str, lines: Sequence[tuple[str, str]]) -> bool:
+    """True for compact bulleted lists of content items (e.g. the settlements
+    of a municipality). Such sections carry the payload of list-type questions
+    and are kept in the budget even when the query terms score them low."""
+    items = [t for k, t in lines if k == "li"]
+    if len(items) < _MIN_LIST_ITEMS:
+        return False
+    if heading.strip().lower() in _NON_CONTENT_HEADINGS:
+        return False
+    return sum(len(t) for t in items) / len(items) <= _MAX_AVG_ITEM_CHARS
 
 
 def _variants(word: str) -> set[str]:
@@ -227,20 +269,34 @@ def select_article_text(
         return truncate(sections_to_text(sections), max_chars)
 
     ranked: list[tuple[int, int]] = []
+    list_idx: list[int] = []
     for idx, (heading, lines) in enumerate(sections):
+        if idx != 0 and _is_list_section(heading, lines):
+            list_idx.append(idx)
+            continue
         s = _score(heading, lines, terms)
         if s > 0:
             ranked.append((s, idx))
-    if not ranked:
+    if not ranked and not list_idx:
         return truncate(sections_to_text(sections), max_chars)
 
-    # Intro (title + lead) first for context, then sections by relevance.
-    order = [0]
-    order += [idx for _, idx in sorted(ranked, key=lambda x: (-x[0], x[1])) if idx != 0]
+    # Bulleted list sections enumerate the sub-items of the entity (e.g. the
+    # settlements of a municipality) and are the payload of list-type
+    # questions. They are ranked as if they had scored three quarters of the
+    # best-scoring section: high enough to beat low-relevance filler, low
+    # enough to stay behind a section that truly matches the query (e.g. a
+    # crew table).
+    floor = max((s for s, _ in ranked), default=0) * 3 // 4
+    for idx in list_idx:
+        s = _score(sections[idx][0], sections[idx][1], terms)
+        ranked.append((max(s, floor), idx))
 
     intro_budget = max(200, max_chars // 3)
     blocks: list[str] = []
     used = 0
+    # Intro (title + lead) first for context, then sections by relevance.
+    order = [0]
+    order += [idx for _, idx in sorted(ranked, key=lambda x: (-x[0], x[1])) if idx != 0]
     for idx in order:
         if used >= max_chars:
             break

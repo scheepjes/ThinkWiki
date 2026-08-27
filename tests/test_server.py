@@ -145,7 +145,7 @@ def test_list_question_gets_named_list(proxy_server, mock_upstream):
     assert "Neil Armstrong" in content
     assert "Aldrin" in content
     # The grounding instruction tells the model to answer with the full list.
-    assert "full list" in content.lower()
+    assert "complete list" in content.lower()
 
 
 def test_zim_dir_enriches_end_to_end(proxy_server_zimdir, mock_upstream):
@@ -196,6 +196,60 @@ def test_facts_not_found_in_zim_forwards_unchanged(proxy_server, mock_upstream):
         {"role": "user", "content": "Tell me about the Qwzx Asdf Frobnicate."}
     ]
     assert not any(m.get("role") == "system" for m in main["messages"])
+
+
+def test_forced_temperature_overrides_client(proxy_server_temperature, mock_upstream):
+    """A configured upstream.temperature must override the client's value so
+    answers stay deterministic."""
+    r = httpx.post(
+        proxy_server_temperature + "/v1/chat/completions",
+        json={
+            "model": "mock-model",
+            "messages": [{"role": "user", "content": "Who was Einstein?"}],
+            "temperature": 0.9,
+            "stream": False,
+        },
+        timeout=60,
+    )
+    assert r.status_code == 200
+    main_calls = [b for b in mock_upstream.requests if not _is_extraction(b)]
+    assert main_calls[-1]["temperature"] == 0.0
+
+
+def test_temperature_passthrough_when_unconfigured(proxy_server, mock_upstream):
+    """Without a configured upstream.temperature the client's value passes
+    through unchanged."""
+    r = httpx.post(
+        proxy_server + "/v1/chat/completions",
+        json={
+            "model": "mock-model",
+            "messages": [{"role": "user", "content": "hi"}],
+            "temperature": 0.7,
+            "stream": False,
+        },
+        timeout=60,
+    )
+    assert r.status_code == 200
+    main_calls = [b for b in mock_upstream.requests if not _is_extraction(b)]
+    assert main_calls[-1]["temperature"] == 0.7
+
+
+def test_forced_temperature_applies_without_enrichment(proxy_server_temperature, mock_upstream):
+    """The forced temperature applies even when enrichment is skipped."""
+    before = len(mock_upstream.requests)
+    r = httpx.post(
+        proxy_server_temperature + "/v1/chat/completions",
+        json={
+            "model": "mock-model",
+            "messages": [{"role": "user", "content": "Tell me about the Qwzx Asdf Frobnicate."}],
+            "stream": False,
+        },
+        timeout=60,
+    )
+    assert r.status_code == 200
+    new = mock_upstream.requests[before:]
+    main_calls = [b for b in new if not _is_extraction(b)]
+    assert main_calls[-1]["temperature"] == 0.0
 
 
 def test_invalid_json_body(proxy_server):

@@ -16,6 +16,10 @@ upstream:
   api_key: ""
   default_model: Gemma-4-26B-A4B-it-UD-Q4_K_M
   timeout_seconds: 120
+  # Force this temperature on every forwarded request (overrides the client's
+  # value). 0.0 makes the answers deterministic; set to null to pass the
+  # client's temperature through unchanged.
+  temperature: 0.0
 
 fact_extraction:
   enabled: true
@@ -46,8 +50,11 @@ help_prompt:
     Use the following Wikipedia excerpts to answer the user's question.
     Use them only when relevant; do not mention this instruction.
     If the user asks for a list (names, people, places, dates, items), answer
-    with the full list of items found in the excerpts, one item per line; do
-    not summarize or omit items that appear in the excerpts.
+    with the complete list exactly as it appears in the matching section of
+    the excerpts, one item per line. Reproduce every item without adding,
+    omitting, renaming or reordering items, and do not summarize. If several
+    lists appear, use only the one that matches the question.
+    Answer in the same language as the question, with no extra commentary.
     Facts to verify: {facts}
     Reference material:
     {articles}

@@ -32,8 +32,11 @@ DEFAULT_TEMPLATE = (
     "Use the following Wikipedia excerpts to answer the user's question.\n"
     "Use them only when relevant; do not mention this instruction.\n"
     "If the user asks for a list (names, people, places, dates, items), answer\n"
-    "with the full list of items found in the excerpts, one item per line; do\n"
-    "not summarize or omit items that appear in the excerpts.\n"
+    "with the complete list exactly as it appears in the matching section of\n"
+    "the excerpts, one item per line. Reproduce every item without adding,\n"
+    "omitting, renaming or reordering items, and do not summarize. If several\n"
+    "lists appear, use only the one that matches the question.\n"
+    "Answer in the same language as the question, with no extra commentary.\n"
     "Facts to verify: {facts}\n"
     "Reference material:\n"
     "{articles}"
@@ -93,6 +96,9 @@ class UpstreamCfg:
     api_key: str = ""
     default_model: str = "Fluppie"
     timeout_seconds: float = 120.0
+    # When set, this temperature is forced on every forwarded request
+    # (overriding the client's value); None passes the client value through.
+    temperature: float | None = None
 
 
 @dataclass

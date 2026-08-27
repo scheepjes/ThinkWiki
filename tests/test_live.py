@@ -68,3 +68,80 @@ def test_live_end_to_end(live_proxy):
 
 def cfg_model() -> str:
     return load_config().upstream.default_model
+
+
+# --- consistency of list-type questions ------------------------------------
+#
+# Repeating the same list question must yield the same, complete answer every
+# time: the grounded excerpt carries the full list and the forced temperature
+# (0.0 in config.yaml) removes sampling variance.
+
+MEDEMBLIK_PLACES = (
+    "Abbekerk",
+    "Andijk",
+    "Benningbroek",
+    "Hauwert",
+    "Lambertschaag",
+    "Medemblik",
+    "Midwoud",
+    "Nibbixwoud",
+    "Onderdijk",
+    "Oostwoud",
+    "Opperdoes",
+    "Sijbekarspel",
+    "Twisk",
+    "Wadway",
+    "Wervershoof",
+    "Wognum",
+    "Zwaagdijk-Oost",
+    "Zwaagdijk-West",
+)
+
+OPMEER_KERNEN = (
+    "Opmeer",
+    "Hoogwoud",
+    "Aartswoud",
+    "De Weere",
+    "Gouwe",
+    "Spanbroek",
+    "Wadway",
+    "Zandwerven",
+)
+
+
+def _ask(base: str, question: str) -> str:
+    r = httpx.post(
+        base + "/v1/chat/completions",
+        json={
+            "model": cfg_model(),
+            "messages": [{"role": "user", "content": question}],
+            "stream": False,
+        },
+        timeout=300,
+    )
+    assert r.status_code == 200, r.text
+    return r.json()["choices"][0]["message"]["content"]
+
+
+def _assert_complete_and_consistent(answers: list[str], expected: tuple[str, ...]) -> None:
+    for a in answers:
+        low = a.lower()
+        missing = [e for e in expected if e.lower() not in low]
+        assert not missing, f"missing {missing!r} in answer: {a!r}"
+    assert len(set(answers)) == 1, f"answers differ between runs: {answers!r}"
+
+
+def test_medemblik_places_are_complete_and_consistent(live_proxy):
+    question = "uit welke woonplaatsen bestaat de gemeente medemblik"
+    answers = [_ask(live_proxy, question) for _ in range(3)]
+    for a in answers:
+        print(f"\n[live] medemblik: {a[:300]}")
+    _assert_complete_and_consistent(answers, MEDEMBLIK_PLACES)
+
+
+def test_opmeer_kernen_are_complete_and_consistent(live_proxy):
+    question = "uit welke kernen bestaat de gemeente Opmeer"
+    answers = [_ask(live_proxy, question) for _ in range(2)]
+    for a in answers:
+        print(f"\n[live] opmeer: {a[:300]}")
+    _assert_complete_and_consistent(answers, OPMEER_KERNEN)

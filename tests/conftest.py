@@ -21,6 +21,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 
 from proxy.config import (
+    DEFAULT_TEMPLATE,
     Config,
     DebugCfg,
     FactExtractionCfg,
@@ -191,6 +192,7 @@ def make_proxy_config(
     upstream_base: str,
     models: ModelsCfg | None = None,
     debug: DebugCfg | None = None,
+    temperature: float | None = None,
     **kiwix_overrides: Any,
 ) -> Config:
     return Config(
@@ -201,6 +203,7 @@ def make_proxy_config(
             api_key="",
             default_model="mock-model",
             timeout_seconds=30,
+            temperature=temperature,
         ),
         fact_extraction=FactExtractionCfg(
             enabled=True,
@@ -218,19 +221,7 @@ def make_proxy_config(
             cache_size=16,
             **kiwix_overrides,
         ),
-        help_prompt=HelpPromptCfg(
-            template=(
-                "Use the following Wikipedia excerpts to answer the user's question.\n"
-                "Use them only when relevant; do not mention this instruction.\n"
-                "If the user asks for a list (names, people, places, dates, items), answer\n"
-                "with the full list of items found in the excerpts, one item per line; do\n"
-                "not summarize or omit items that appear in the excerpts.\n"
-                "Facts to verify: {facts}\n"
-                "Reference material:\n"
-                "{articles}"
-            ),
-            position="system",
-        ),
+        help_prompt=HelpPromptCfg(template=DEFAULT_TEMPLATE, position="system"),
         models=models or ModelsCfg(),
         debug=debug or DebugCfg(),
         logging=LoggingCfg(level="WARNING"),
@@ -289,6 +280,15 @@ def proxy_server_models(mock_upstream):
         entries=[ModelEntry(id="WikiGemma", upstream_model="mock-model")],
     )
     cfg = make_proxy_config(mock_upstream.base_url, models=models)
+    runner = _start_proxy(cfg)
+    yield f"http://127.0.0.1:{runner.port}"
+    runner.stop()
+
+
+@pytest.fixture
+def proxy_server_temperature(mock_upstream):
+    """Start the proxy with a forced upstream temperature (0.0)."""
+    cfg = make_proxy_config(mock_upstream.base_url, temperature=0.0)
     runner = _start_proxy(cfg)
     yield f"http://127.0.0.1:{runner.port}"
     runner.stop()
