@@ -35,7 +35,7 @@ def test_env_override(monkeypatch, tmp_path):
 
 def test_defaults_when_no_file(tmp_path):
     cfg = load_config(str(tmp_path / "nope.yaml"))
-    assert cfg.server.port == 8000
+    assert cfg.server.port == 8050
     assert cfg.upstream.base_url == "http://10.0.0.10:9001/v1"
     assert cfg.fact_extraction.enabled is True
     assert "/v1/chat/completions" in cfg.endpoints

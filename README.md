@@ -174,13 +174,13 @@ Any string value in the YAML also supports `${ENV_VAR}` and
 bin/python -m proxy
 ```
 
-The server binds to `server.host:server.port` (default `127.0.0.1:8000`) and
+The server binds to `server.host:server.port` (default `127.0.0.1:8050`) and
 opens the ZIM at startup.
 
 ### Example: non-streaming
 
 ```bash
-curl -s http://127.0.0.1:8000/v1/chat/completions \
+curl -s http://127.0.0.1:8050/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "WikiGemma",
@@ -192,7 +192,7 @@ curl -s http://127.0.0.1:8000/v1/chat/completions \
 ### Example: streaming (SSE)
 
 ```bash
-curl -sN http://127.0.0.1:8000/v1/chat/completions \
+curl -sN http://127.0.0.1:8050/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "WikiGemma",
@@ -208,7 +208,7 @@ Point any OpenAI SDK at the proxy:
 ```python
 from openai import OpenAI
 
-client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="not-needed")
+client = OpenAI(base_url="http://127.0.0.1:8050/v1", api_key="not-needed")
 resp = client.chat.completions.create(
     model="WikiGemma",
     messages=[{"role": "user", "content": "Who was Albert Einstein?"}],
@@ -223,13 +223,13 @@ in-memory buffer (newest first). Inspect it with:
 
 ```bash
 # list all captured exchanges
-curl -s http://127.0.0.1:8000/debug/requests
+curl -s http://127.0.0.1:8050/debug/requests
 
 # fetch one entry by id
-curl -s http://127.0.0.1:8000/debug/requests/1
+curl -s http://127.0.0.1:8050/debug/requests/1
 
 # clear the buffer
-curl -s -X DELETE http://127.0.0.1:8000/debug/requests
+curl -s -X DELETE http://127.0.0.1:8050/debug/requests
 ```
 
 Each entry records the client request, the requested vs. upstream model, the

@@ -84,7 +84,7 @@ def _build_models(data: dict[str, Any] | None) -> ModelsCfg:
 @dataclass
 class ServerCfg:
     host: str = "0.0.0.0"
-    port: int = 8000
+    port: int = 8050
 
 
 @dataclass
